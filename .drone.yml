@@ -1,0 +1,10 @@
+pipeline:
+  build:
+    image: python:${PYTHON_VERSION}
+    commands:
+      - make test
+
+matrix:
+  PYTHON_VERSION:
+    - 3.5-jessie
+    - 3.6-jessie
