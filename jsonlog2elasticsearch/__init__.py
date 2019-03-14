@@ -79,11 +79,17 @@ def commit(es, force=False):
         return False
     LOG.info("commiting %i line(s) to ES..." % len(TO_SEND))
     for chunk in chunks(TO_SEND, 500):
-        res = elasticsearch.helpers.bulk(es, chunk, stats_only=False,
-                                         raise_on_error=False)
-        if res[0] != len(chunk):
-            LOG.warning("can't post %i lines to ES" % (len(chunk) - res[0]))
-            LOG.debug("raw output: %s" % res[1])
+        try:
+            res = elasticsearch.helpers.bulk(es, chunk, stats_only=False,
+                                             raise_on_error=False)
+            if res[0] != len(chunk):
+                LOG.warning("can't post %i lines to ES" %
+                            (len(chunk) - res[0]))
+                LOG.debug("raw output: %s" % res[1])
+        except Exception as e:
+            LOG.warning("can't commit anything to ES: %s "
+                        "(ES or network problem ?)", e)
+
     TO_SEND = []
     return True
 
