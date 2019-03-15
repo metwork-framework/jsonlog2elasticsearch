@@ -4,3 +4,6 @@
 ### Feat
 - first version
 
+### Fix
+- catch elasticsearch exceptions
+
