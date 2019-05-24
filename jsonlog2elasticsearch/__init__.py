@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import os
-import json
+import ujson
 import argparse
 import pygtail
 import elasticsearch
@@ -9,7 +9,7 @@ import functools
 import elasticsearch.helpers
 import importlib
 import datetime
-import dateutil.parser
+import ciso8601
 import signal
 import pytz
 import time
@@ -22,16 +22,9 @@ DESCRIPTION = "daemon to send json logs read from a file to an " \
 
 LOG = get_logger("jsonlog2elasticsearch")
 RUNNING = True
-SLEEP_AFTER_EACH_ITERATION = 3
+SLEEP_AFTER_EACH_ITERATION = 0.1
 TO_SEND = []
-
-
-# Thanks to https://stackoverflow.com/questions/312443/
-#     how-do-you-split-a-list-into-evenly-sized-chunks
-def chunks(l, n):
-    """Yield successive n-sized chunks from l."""
-    for i in range(0, len(l), n):
-        yield l[i:i + n]
+CHUNK_SIZE = 5000
 
 
 def signal_handler(signum, frame):
@@ -47,7 +40,7 @@ def process(line, transform_func, index_func):
     if len(tmp) == 0:
         return False
     try:
-        decoded = json.loads(tmp)
+        decoded = ujson.loads(tmp)
     except Exception:
         LOG.warning("can't decode the line: %s as JSON" % tmp)
         return False
@@ -73,23 +66,22 @@ def process(line, transform_func, index_func):
 
 def commit(es, force=False):
     global TO_SEND
-    if not(force) and len(TO_SEND) < 500:
+    if not(force) and len(TO_SEND) < CHUNK_SIZE:
         return False
     if len(TO_SEND) == 0:
         return False
     LOG.info("commiting %i line(s) to ES..." % len(TO_SEND))
-    for chunk in chunks(TO_SEND, 500):
-        try:
-            res = elasticsearch.helpers.bulk(es, chunk, stats_only=False,
-                                             raise_on_error=False)
-            if res[0] != len(chunk):
-                LOG.warning("can't post %i lines to ES" %
-                            (len(chunk) - res[0]))
-                LOG.debug("raw output: %s" % res[1])
-        except Exception as e:
-            LOG.warning("can't commit anything to ES: %s "
-                        "(ES or network problem ?)", e)
-
+    try:
+        res = elasticsearch.helpers.bulk(es, TO_SEND, stats_only=False,
+                                         chunk_size=CHUNK_SIZE,
+                                         raise_on_error=False)
+        if res[0] != len(TO_SEND):
+            LOG.warning("can't post %i lines to ES" %
+                        (len(TO_SEND) - res[0]))
+            LOG.debug("raw output: %s" % res[1])
+    except Exception as e:
+        LOG.warning("can't commit anything to ES: %s "
+                    "(ES or network problem ?)", e)
     TO_SEND = []
     return True
 
@@ -139,7 +131,7 @@ def get_index_func(func_path):
 
 def default_index_func(index_const_value, dict_object):
     if "@timestamp" in dict_object:
-        ref = dateutil.parser.parse(dict_object["@timestamp"])
+        ref = ciso8601.parse_datetime(dict_object["@timestamp"])
         ref_utc = ref.replace(tzinfo=pytz.utc) - ref.utcoffset()
     else:
         ref_utc = datetime.datetime.utcnow()
