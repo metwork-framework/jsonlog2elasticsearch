@@ -11,6 +11,9 @@
 - catch elasticsearch exceptions
 
 
+### Performance Enhancements
+- performances improvements
+
 
 
 
